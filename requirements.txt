@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+tensorflow==2.10.1
+opencv-python
+pillow
+numpy
+gradio

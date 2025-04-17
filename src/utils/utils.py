@@ -64,3 +64,7 @@ def plot_history(history, output_path):
         plt.show()
 
     plt.close()
+
+def clean_gpu_cache():
+    import os
+    os.system("bash scripts/clean_gpu_cache.sh")
