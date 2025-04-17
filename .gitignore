@@ -18,6 +18,7 @@ data/raw/
 data/processed/*.npz
 outputs/
 models/
+data/
 
 # VSCode / PyCharm
 .vscode/
