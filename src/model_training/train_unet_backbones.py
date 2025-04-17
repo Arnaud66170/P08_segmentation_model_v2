@@ -1,16 +1,17 @@
-# src/model_training/train_unet.py
+# src/model_training/train_unet_backbones.py
 
 import os
 import time
 import joblib
 import numpy as np
 import pandas as pd
+from pathlib import Path
 import tensorflow as tf
 from tensorflow import keras
 from keras import layers
-from pathlib import Path
 import mlflow
 import mlflow.keras
+from tensorflow.keras.applications import VGG16, MobileNetV2, EfficientNetB0
 
 from model_training.metrics import iou_score, dice_coef
 from utils.mlflow_manager import mlflow_logging_decorator
@@ -20,60 +21,73 @@ from utils.utils import plot_history
 ARTIFACTS_DIR = Path("models")
 ARTIFACTS_DIR.mkdir(exist_ok=True)
 
-@mlflow_logging_decorator
-@log_step
-def unet_mini(input_shape=(256, 256, 3), num_classes=8):
-    inputs = layers.Input(shape=input_shape)
-
-    c1 = layers.Conv2D(32, 3, activation='relu', padding='same')(inputs)
-    c1 = layers.Conv2D(32, 3, activation='relu', padding='same')(c1)
-    p1 = layers.MaxPooling2D()(c1)
-
-    c2 = layers.Conv2D(64, 3, activation='relu', padding='same')(p1)
-    c2 = layers.Conv2D(64, 3, activation='relu', padding='same')(c2)
-    p2 = layers.MaxPooling2D()(c2)
-
-    b = layers.Conv2D(128, 3, activation='relu', padding='same')(p2)
-
-    u1 = layers.UpSampling2D()(b)
-    u1 = layers.concatenate([u1, c2])
-    c3 = layers.Conv2D(64, 3, activation='relu', padding='same')(u1)
-
-    u2 = layers.UpSampling2D()(c3)
-    u2 = layers.concatenate([u2, c1])
-    c4 = layers.Conv2D(32, 3, activation='relu', padding='same')(u2)
-
-    outputs = layers.Conv2D(num_classes, 1, activation='softmax')(c4)
-    return keras.Model(inputs, outputs)
+BACKBONES = {
+    "vgg16": VGG16,
+    "mobilenetv2": MobileNetV2,
+    "efficientnetb0": EfficientNetB0
+}
 
 @mlflow_logging_decorator
 @log_step
-def train_unet_model_from_npz(X_train, Y_train, X_val, Y_val,
-                              force_retrain=False,
-                              img_size=(256, 256),
-                              epochs=20,
-                              batch_size=8,
-                              use_early_stopping=True,
-                              num_classes=8):
+def build_unet_backbone(backbone_name, input_shape=(256, 256, 3), num_classes=8):
+    base_model = BACKBONES[backbone_name] (
+        weights="imagenet",
+        include_top=False,
+        input_shape=input_shape
+    )
 
-    model_name = f"unet_mini_npz_{img_size[0]}x{img_size[1]}_bs{batch_size}_ep{epochs}"
+    # Geler le backbone
+    for layer in base_model.layers:
+        layer.trainable = False
+
+    inputs = base_model.input
+    x = base_model.output
+
+    # Decoder UNet simplifié
+    x = layers.Conv2D(256, 3, activation='relu', padding='same')(x)
+    x = layers.UpSampling2D()(x)
+    x = layers.Conv2D(128, 3, activation='relu', padding='same')(x)
+    x = layers.UpSampling2D()(x)
+    x = layers.Conv2D(64, 3, activation='relu', padding='same')(x)
+    x = layers.UpSampling2D()(x)
+    x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
+    x = layers.UpSampling2D()(x)
+    x = layers.Conv2D(16, 3, activation='relu', padding='same')(x)
+    x = layers.UpSampling2D()(x)
+
+    outputs = layers.Conv2D(num_classes, 1, activation="softmax")(x)
+    model = keras.Model(inputs, outputs)
+    return model
+
+@mlflow_logging_decorator
+@log_step
+def train_unet_with_backbone(backbone_name,
+                             X_train, Y_train, X_val, Y_val,
+                             force_retrain=False,
+                             img_size=(256, 256),
+                             epochs=40,
+                             batch_size=8,
+                             use_early_stopping=True,
+                             num_classes=8):
+
+    model_name = f"unet_{backbone_name}_{img_size[0]}x{img_size[1]}_bs{batch_size}_ep{epochs}"
     model_path   = ARTIFACTS_DIR / f"{model_name}.h5"
     history_path = ARTIFACTS_DIR / f"{model_name}_history.pkl"
     plot_path    = ARTIFACTS_DIR / f"{model_name}_training_plot.png"
     csv_path     = ARTIFACTS_DIR / f"{model_name}_history.csv"
 
     if model_path.exists() and not force_retrain:
-        print(f"[INFO] Modèle existant détecté : {model_path}")
+        print(f"[INFO] Modèle existant pour {backbone_name} : chargement...")
         model = keras.models.load_model(model_path, custom_objects={"iou_score": iou_score, "dice_coef": dice_coef})
         history = joblib.load(history_path)
         return model, history
 
-    print("[INFO] Initialisation du modèle UNet Mini...")
-    model = unet_mini(input_shape=(img_size[0], img_size[1], 3), num_classes=num_classes)
+    print(f"[INFO] Initialisation du modèle UNet avec backbone : {backbone_name}")
+    model = build_unet_backbone(backbone_name, input_shape=(img_size[0], img_size[1], 3), num_classes=num_classes)
     model.compile(
-        optimizer='adam',
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy', iou_score, dice_coef]
+        optimizer="adam",
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy", iou_score, dice_coef]
     )
 
     callbacks = [
@@ -85,12 +99,12 @@ def train_unet_model_from_npz(X_train, Y_train, X_val, Y_val,
 
     with mlflow.start_run(run_name=model_name):
         mlflow.log_params({
+            "backbone": backbone_name,
             "input_shape": img_size,
             "batch_size": batch_size,
             "epochs": epochs,
             "early_stopping": use_early_stopping,
-            "force_retrain": force_retrain,
-            "source": ".npz"
+            "force_retrain": force_retrain
         })
 
         start = time.time()

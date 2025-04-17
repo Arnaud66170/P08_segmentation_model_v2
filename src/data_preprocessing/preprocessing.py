@@ -68,21 +68,20 @@ def prepare_dataset(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    paths_exist = all([
-        (output_dir / f"{split}.npz").exists()
-        for split in ["train", "val", "test"]
-    ])
+    # 🔁 Vérification des fichiers existants
+    npz_paths = [output_dir / f"{split}.npz" for split in ["train", "val", "test"]]
+    paths_exist = all(path.exists() for path in npz_paths)
 
     if paths_exist and not force_preprocessing:
-        print(f"[INFO] Données déjà prétraitées présentes dans {output_dir}.")
+        print(f"[INFO] Données déjà prétraitées présentes dans {output_dir}. Skip preprocessing.")
         return
 
     if force_preprocessing and paths_exist:
-        for f in output_dir.glob("*.npz"):
+        print(f"[INFO] Suppression des anciens fichiers .npz pour preprocessing forcé.")
+        for f in npz_paths:
             f.unlink()
-        print(f"[INFO] Fichiers .npz supprimés pour preprocessing forcé.")
 
-    # Chargement des fichiers
+    # 📥 Chargement des fichiers images + masks
     images = sorted(glob(os.path.join(image_dir, "*.png")))
     masks = sorted(glob(os.path.join(mask_dir, "*.png")))
 
@@ -101,7 +100,7 @@ def prepare_dataset(
         img_norm = img_resized / 255.0
         mask_resized = cv2.resize(mask, img_size, interpolation=cv2.INTER_NEAREST)
 
-        remapped_mask = np.full_like(mask_resized, fill_value = 255)
+        remapped_mask = np.full_like(mask_resized, fill_value=255)
         for src_id, class_id in mapping_dict.items():
             remapped_mask[mask_resized == src_id] = class_id
 
@@ -111,13 +110,16 @@ def prepare_dataset(
     X = np.array(X, dtype=np.float32)
     Y = np.array(Y, dtype=np.uint8)
 
+    # 📊 Split
     X_train, X_temp, y_train, y_temp = train_test_split(X, Y, test_size=0.2, random_state=42)
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
 
+    # 💾 Sauvegarde .npz
     np.savez_compressed(output_dir / "train.npz", X=X_train, Y=y_train)
     np.savez_compressed(output_dir / "val.npz", X=X_val, Y=y_val)
     np.savez_compressed(output_dir / "test.npz", X=X_test, Y=y_test)
 
+    # 📈 MLflow tracking
     if mlflow_tracking:
         with mlflow.start_run(run_name="preprocessing_pipeline"):
             mlflow.log_param("image_size", img_size)
@@ -126,11 +128,10 @@ def prepare_dataset(
             mlflow.log_param("train_size", len(X_train))
             mlflow.log_param("val_size", len(X_val))
             mlflow.log_param("test_size", len(X_test))
-            mlflow.log_artifact(str(output_dir / "train.npz"))
-            mlflow.log_artifact(str(output_dir / "val.npz"))
-            mlflow.log_artifact(str(output_dir / "test.npz"))
+            for path in npz_paths:
+                mlflow.log_artifact(str(path))
 
-    # 📄 Log CSV local
+    # 📄 Log CSV
     log_dir = Path("outputs/logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "preprocessing_log.csv"
@@ -158,7 +159,7 @@ def prepare_dataset(
 
     print(f"[LOG] Infos de preprocessing ajoutées à : {log_file}")
 
-    # 📊 Génération et sauvegarde du graphe de distribution des classes
+    # 📊 Graphe de distribution
     def compute_class_distribution(y_sets, nb_classes):
         counts = np.zeros(nb_classes, dtype=int)
         for y in y_sets:
@@ -188,6 +189,7 @@ def prepare_dataset(
 
     print(f"[FIG] Graphe de distribution sauvegardé dans : {plot_path}")
     print(f"[✅] Preprocessing terminé. Données sauvegardées dans : {output_dir}")
+
 
 @log_step
 def load_data_npz(path: str):
