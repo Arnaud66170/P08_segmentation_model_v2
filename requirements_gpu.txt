@@ -1,0 +1,10 @@
+tensorflow==2.10.1
+mlflow
+optuna
+albumentations
+scikit-learn
+matplotlib
+pandas
+opencv-python
+joblib
+seaborn
