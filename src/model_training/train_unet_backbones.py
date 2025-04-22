@@ -10,7 +10,6 @@ import tensorflow as tf
 from tensorflow import keras
 from keras import layers
 import mlflow
-import mlflow.keras
 from tensorflow.keras.applications import VGG16, MobileNetV2, EfficientNetB0
 
 from model_training.metrics import iou_score, dice_coef
@@ -28,7 +27,6 @@ BACKBONES = {
 }
 
 def safe_float(val):
-    """Convertit en float natif si besoin (évite les erreurs de serialization JSON dans MLflow)"""
     if isinstance(val, (tf.Tensor, np.generic)):
         return float(val)
     elif isinstance(val, (list, np.ndarray)):
@@ -43,14 +41,12 @@ def build_unet_backbone(backbone_name, input_shape=(256, 256, 3), num_classes=8)
         include_top=False,
         input_shape=input_shape
     )
-
     for layer in base_model.layers:
         layer.trainable = False
 
     inputs = base_model.input
     x = base_model.output
 
-    # Decoder UNet
     x = layers.Conv2D(256, 3, activation='relu', padding='same')(x)
     x = layers.UpSampling2D()(x)
     x = layers.Conv2D(128, 3, activation='relu', padding='same')(x)
@@ -63,8 +59,7 @@ def build_unet_backbone(backbone_name, input_shape=(256, 256, 3), num_classes=8)
     x = layers.UpSampling2D()(x)
 
     outputs = layers.Conv2D(num_classes, 1, activation="softmax")(x)
-    model = keras.Model(inputs, outputs)
-    return model
+    return keras.Model(inputs, outputs)
 
 @mlflow_logging_decorator
 @log_step
@@ -126,6 +121,7 @@ def train_unet_with_backbone(backbone_name,
             "early_stopping": use_early_stopping,
             "force_retrain": force_retrain
         })
+        mlflow.log_param("model_name", model_name)
 
         start = time.time()
         history_obj = model.fit(
@@ -141,18 +137,14 @@ def train_unet_with_backbone(backbone_name,
         duration = round(end - start, 2)
         mlflow.log_metric("train_time_sec", duration)
 
-        # Sauvegardes
         joblib.dump(history_obj.history, history_path)
         pd.DataFrame(history_obj.history).to_csv(csv_path, index=False)
         plot_history(history_obj, plot_path)
 
-        # Logging MLflow
-        mlflow.keras.log_model(model, model_name)
         mlflow.log_artifact(str(history_path))
         mlflow.log_artifact(str(plot_path))
         mlflow.log_artifact(str(csv_path))
 
-        # Logging sécurisé des métriques par epoch
         for epoch in range(len(history_obj.history['loss'])):
             mlflow.log_metric("val_accuracy", safe_float(history_obj.history['val_accuracy'][epoch]), step=epoch)
             mlflow.log_metric("val_loss",     safe_float(history_obj.history['val_loss'][epoch]),     step=epoch)
