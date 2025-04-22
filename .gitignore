@@ -7,6 +7,7 @@ __pycache__/
 
 # Virtual env
 venv_p8/
+venv_p8_clean/
 .env
 .env.*
 

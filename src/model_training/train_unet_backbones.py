@@ -27,23 +27,30 @@ BACKBONES = {
     "efficientnetb0": EfficientNetB0
 }
 
+def safe_float(val):
+    """Convertit en float natif si besoin (évite les erreurs de serialization JSON dans MLflow)"""
+    if isinstance(val, (tf.Tensor, np.generic)):
+        return float(val)
+    elif isinstance(val, (list, np.ndarray)):
+        return [float(v) for v in val]
+    return val
+
 @mlflow_logging_decorator
 @log_step
 def build_unet_backbone(backbone_name, input_shape=(256, 256, 3), num_classes=8):
-    base_model = BACKBONES[backbone_name] (
+    base_model = BACKBONES[backbone_name](
         weights="imagenet",
         include_top=False,
         input_shape=input_shape
     )
 
-    # Geler le backbone
     for layer in base_model.layers:
         layer.trainable = False
 
     inputs = base_model.input
     x = base_model.output
 
-    # Decoder UNet simplifié
+    # Decoder UNet
     x = layers.Conv2D(256, 3, activation='relu', padding='same')(x)
     x = layers.UpSampling2D()(x)
     x = layers.Conv2D(128, 3, activation='relu', padding='same')(x)
@@ -77,10 +84,23 @@ def train_unet_with_backbone(backbone_name,
     csv_path     = ARTIFACTS_DIR / f"{model_name}_history.csv"
 
     if model_path.exists() and not force_retrain:
-        print(f"[INFO] Modèle existant pour {backbone_name} : chargement...")
-        model = keras.models.load_model(model_path, custom_objects={"iou_score": iou_score, "dice_coef": dice_coef})
-        history = joblib.load(history_path)
-        return model, history
+        try:
+            print(f"[INFO] Modèle existant pour {backbone_name} : reconstruction + chargement des poids...")
+            model = build_unet_backbone(backbone_name, input_shape=(img_size[0], img_size[1], 3), num_classes=num_classes)
+            model.load_weights(model_path)
+            model.compile(
+                optimizer="adam",
+                loss="sparse_categorical_crossentropy",
+                metrics=["accuracy", iou_score, dice_coef]
+            )
+            history = joblib.load(history_path)
+            return model, history
+
+        except Exception as e:
+            print(f"[⚠️] Échec lors du chargement du modèle existant : {e}")
+            print(f"[INFO] Suppression du fichier corrompu et réentraînement forcé.")
+            model_path.unlink(missing_ok=True)
+            history_path.unlink(missing_ok=True)
 
     print(f"[INFO] Initialisation du modèle UNet avec backbone : {backbone_name}")
     model = build_unet_backbone(backbone_name, input_shape=(img_size[0], img_size[1], 3), num_classes=num_classes)
@@ -91,7 +111,7 @@ def train_unet_with_backbone(backbone_name,
     )
 
     callbacks = [
-        keras.callbacks.ModelCheckpoint(filepath=str(model_path), save_best_only=True)
+        keras.callbacks.ModelCheckpoint(filepath=str(model_path), save_best_only=True, save_weights_only=True)
     ]
     if use_early_stopping:
         callbacks.append(keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True))
@@ -121,19 +141,22 @@ def train_unet_with_backbone(backbone_name,
         duration = round(end - start, 2)
         mlflow.log_metric("train_time_sec", duration)
 
+        # Sauvegardes
         joblib.dump(history_obj.history, history_path)
         pd.DataFrame(history_obj.history).to_csv(csv_path, index=False)
         plot_history(history_obj, plot_path)
 
+        # Logging MLflow
         mlflow.keras.log_model(model, model_name)
         mlflow.log_artifact(str(history_path))
         mlflow.log_artifact(str(plot_path))
         mlflow.log_artifact(str(csv_path))
 
+        # Logging sécurisé des métriques par epoch
         for epoch in range(len(history_obj.history['loss'])):
-            mlflow.log_metric("val_accuracy", history_obj.history['val_accuracy'][epoch], step=epoch)
-            mlflow.log_metric("val_loss", history_obj.history['val_loss'][epoch], step=epoch)
-            mlflow.log_metric("val_iou_score", history_obj.history['val_iou_score'][epoch], step=epoch)
-            mlflow.log_metric("val_dice_coef", history_obj.history['val_dice_coef'][epoch], step=epoch)
+            mlflow.log_metric("val_accuracy", safe_float(history_obj.history['val_accuracy'][epoch]), step=epoch)
+            mlflow.log_metric("val_loss",     safe_float(history_obj.history['val_loss'][epoch]),     step=epoch)
+            mlflow.log_metric("val_iou_score", safe_float(history_obj.history['val_iou_score'][epoch]), step=epoch)
+            mlflow.log_metric("val_dice_coef", safe_float(history_obj.history['val_dice_coef'][epoch]), step=epoch)
 
     return model, history_obj.history
