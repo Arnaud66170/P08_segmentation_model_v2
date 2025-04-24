@@ -11,6 +11,7 @@ venv_p8_clean/
 .env
 .env.*
 venv_tf_debug/
+test_images/
 
 # Jupyter
 .ipynb_checkpoints/
