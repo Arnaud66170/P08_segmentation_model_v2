@@ -1,17 +1,24 @@
 # api/main.py
 
-import io
-import time
-import base64
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
+import io
+import time
+import base64
+import traceback
+import numpy as np
+
 from api.model_loader import load_segmentation_model
 from api.inference import predict_mask, log_inference
+from src.utils.colormap_utils import mask_to_colormap
 
 app = FastAPI(title="API Segmentation P8")
 
-# Middleware pour permettre à Gradio / autres clients d’appeler l’API
+# Middleware pour autoriser CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,41 +27,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Chargement du modèle global au démarrage
+# Chargement du modèle global (UNet Mini par défaut)
 model = load_segmentation_model()
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    """
-    Route principale de prédiction.
-    Accepte une image, renvoie le mask prédicté (Base64).
-    """
-    # Lire l’image
-    image_bytes = await file.read()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    try:
+        # Lecture de l'image
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    start = time.time()
-    mask = predict_mask(model, image)
-    duration = time.time() - start
+        # Prédiction
+        start = time.time()
+        mask = predict_mask(model, image)
+        duration = time.time() - start
 
-    # Convertir le mask en image couleur (palette segmentée)
-    mask_img = Image.fromarray(mask.astype("uint8"), mode="L").resize(image.size)
+        # Debug console
+        print("[DEBUG] 📏 Mask shape :", mask.shape)
+        print("[DEBUG] 🎯 Classes uniques :", np.unique(mask))
 
-    # Encode mask en base64 pour réponse JSON
-    buffer = io.BytesIO()
-    mask_img.save(buffer, format="PNG")
-    mask_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        # Application de la colormap
+        try:
+            mask_img = mask_to_colormap(mask).resize(image.size)
+        except Exception as colormap_error:
+            print("🛑 ERREUR DANS mask_to_colormap")
+            traceback.print_exc()
+            return {"error": f"Erreur de colorisation : {str(colormap_error)}"}
 
-    # Log de l’inférence
-    log_inference(file.filename, duration)
+        # Encodage Base64
+        buffer = io.BytesIO()
+        mask_img.save(buffer, format="PNG")
+        mask_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    return {
-        "filename": file.filename,
-        "inference_time": round(duration, 4),
-        "mask_base64": mask_base64,
-    }
+        # Logging
+        log_inference(file.filename, duration)
 
-# Pour tester en local : uvicorn api.main:app --reload
+        return {
+            "filename": file.filename,
+            "inference_time": round(duration, 4),
+            "mask_base64": mask_base64
+        }
 
-# Puis POST via Postman ou curl :
-# curl -X POST -F "file=@mon_image.png" http://localhost:8000/predict
+    except Exception as e:
+        print("🛑 ERREUR PENDANT /predict")
+        traceback.print_exc()
+        return {"error": f"Erreur serveur : {str(e)}"}

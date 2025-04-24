@@ -9,6 +9,7 @@ import random
 from pathlib import Path
 import sys
 import os
+from PIL import Image
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -87,14 +88,14 @@ def show_image_mask_grid_overlay(images, masks, n=5, alpha=0.5, save_path=None):
 
 # Palette personnalisée de couleurs (8 classes)
 CLASS_COLORS = {
-    0: "#808080",  # void
-    1: "#FFA500",  # flat
-    2: "#8B4513",  # construction
-    3: "#FFD700",  # object
-    4: "#228B22",  # nature
-    5: "#1E90FF",  # sky
-    6: "#FF1493",  # human
-    7: "#DC143C",  # vehicle
+    0: "#000000",   # void        → noir
+    1: "#804080",   # flat        → violet foncé
+    2: "#464646",   # construction→ gris foncé
+    3: "#66669C",   # object      → bleu-gris
+    4: "#6B8E23",   # nature      → vert olive
+    5: "#4682B4",   # sky         → bleu clair
+    6: "#DC143C",   # human       → rouge vif
+    7: "#00008E",   # vehicle     → bleu nuit
 }
 
 

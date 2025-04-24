@@ -1,34 +1,40 @@
 # api/model_loader.py
 
 import os
-from tensorflow.keras.models import load_model
-from src.utils.losses import weighted_focal_loss
-from src.utils.metrics import iou_score, dice_coef
+import sys
 
-# Dictionnaire des chemins vers les modèles
+# Ajoute la racine du projet au PYTHONPATH pour que src/ soit importable
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from tensorflow.keras.models import load_model
+from src.model_training.metrics import iou_score, dice_coef
+# weighted_focal_loss pas nécessaire ici si on compile=False
+
+# Dictionnaire des chemins vers les modèles sauvegardés
 MODEL_PATHS = {
-    "unet_mini": "models/unet_mini_npz_256x256_bs8_ep40.h5",
-    # "vgg16": "models/unet_vgg16_256x256_bs4_ep40.h5",
-    # "mobilenetv2": "models/unet_mobilenetv2_256x256_bs4_ep40.h5",
+    "unet_mini": "notebooks/models/unet_mini_npz_256x256_bs8_ep40.h5",
+    # "vgg16": "notebooks/models/unet_vgg16_256x256_bs4_ep40.h5",
+    # "mobilenetv2": "notebooks/models/unet_mobilenetv2_256x256_bs4_ep40.h5",
 }
 
-# Dictionnaire des objets custom à injecter (pour charger les modèles compilés)
+# Objets personnalisés utilisés lors de l'entraînement (pas de loss ici)
 CUSTOM_OBJECTS = {
     "iou_score": iou_score,
-    "dice_coef": dice_coef,
-    "weighted_focal_loss": weighted_focal_loss,
+    "dice_coef": dice_coef
 }
 
 def load_segmentation_model(model_name: str = "unet_mini"):
     """
-    Charge un modèle de segmentation à partir du nom fourni.
-    Par défaut : 'unet_mini'.
+    Charge un modèle de segmentation pour prédiction.
+    Ne compile pas le modèle car l'inférence ne nécessite pas la loss.
 
     Args:
-        model_name (str): le nom du modèle à charger
+        model_name (str): Nom du modèle à charger
 
     Returns:
-        keras.Model: le modèle chargé
+        keras.Model: Modèle Keras prêt à l'emploi pour .predict()
     """
     if model_name not in MODEL_PATHS:
         print(f"[WARN] Modèle inconnu '{model_name}', fallback sur 'unet_mini'")
