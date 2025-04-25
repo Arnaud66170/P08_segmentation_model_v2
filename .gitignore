@@ -34,3 +34,7 @@ Thumbs.db
 # MLflow
 mlruns/
 mlflow_tracking_uri.txt
+
+# AWS EC2
+*.pem
+*.key
