@@ -1,3 +1,5 @@
+# .github/workflows/test.yml
+
 name: Test API Loader
 
 on:
@@ -17,6 +19,10 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
+      - name: Remove Windows-only packages (e.g. pywin32)
+        run: |
+          sed -i '/pywin32/d' requirements.txt
 
       - name: Install dependencies
         run: |
