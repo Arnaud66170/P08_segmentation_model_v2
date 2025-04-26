@@ -4,9 +4,11 @@ import io
 import base64
 from PIL import Image
 from fastapi.testclient import TestClient
-from api.main import app
-from unittest.mock import MagicMock
 
+from unittest.mock import MagicMock
+from api.main import create_app
+
+app = create_app()
 client = TestClient(app)
 
 # ✅ Mocker proprement le modèle si en mode test
