@@ -28,11 +28,17 @@ app.add_middleware(
 )
 
 # Chargement du modèle global (UNet Mini par défaut)
-model = load_segmentation_model()
+# model = load_segmentation_model()
+model = None
+if os.environ.get("DISABLE_MODEL_LOADING", "0") != "1":
+    model = load_segmentation_model()
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     try:
+        if model is None:
+            return {"error": "Modèle non chargé."}
+
         # Lecture de l'image
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")

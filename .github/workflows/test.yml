@@ -35,5 +35,7 @@ jobs:
           echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
 
       - name: Run unit tests
+        env:
+          DISABLE_MODEL_LOADING: "1"   # ✅ Ajout ici
         run: |
           pytest tests/
