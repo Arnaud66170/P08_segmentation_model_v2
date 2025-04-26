@@ -5,9 +5,9 @@ from api.main import app
 
 client = TestClient(app)
 
-def test_root_exists():
+def test_api_health_check():
     response = client.get("/list-test-images")
-    assert response.status_code == 200 or response.status_code == 404
+    assert response.status_code in [200, 404]
 
 
 # import io

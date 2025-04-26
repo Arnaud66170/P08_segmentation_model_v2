@@ -1,5 +1,6 @@
-fastapi==0.95.2
-starlette==0.27.0
+fastapi==0.110.0
+# fastapi==0.95.2
+# starlette==0.27.0
 absl-py==2.2.2
 aiofiles==23.2.1
 albumentations==1.4.2
