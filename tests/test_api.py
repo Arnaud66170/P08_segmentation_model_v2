@@ -5,8 +5,14 @@ import base64
 from PIL import Image
 from fastapi.testclient import TestClient
 from api.main import app
+from unittest.mock import MagicMock
 
 client = TestClient(app)
+
+# ✅ Mocker proprement le modèle si en mode test
+from api import main
+main.model = MagicMock()
+main.model.predict.return_value = None  # tu peux affiner si besoin
 
 def test_predict_endpoint_returns_mask():
     # Créer une image RGB factice (256x256)
@@ -31,6 +37,3 @@ def test_predict_endpoint_returns_mask():
 
     # Vérifier que le champ mask_base64 est bien décodable
     base64.b64decode(json_data["mask_base64"])
-
-# Pour lancer ce test :
-# pytest tests/test_api.py
